@@ -1,0 +1,7 @@
+{
+  "name": "Telegram Music Bot Studio",
+  "description": "Production-ready Telegram Group Voice Chat Music Bot code suite powered by Pyrogram v2, PyTgCalls, and yt-dlp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
