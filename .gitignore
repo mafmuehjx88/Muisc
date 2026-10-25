@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+__pycache__/
+*.py[cod]
+*.session
+*.session-journal
+*.tmp
+downloads/
+.runtime_bin/

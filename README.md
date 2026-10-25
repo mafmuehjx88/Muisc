@@ -1,52 +1,38 @@
-# 🎵 Telegram Group Music Bot (Pyrogram v2 + PyTgCalls + yt-dlp)
+# 🎵 Mario Music — Telegram Group Voice Chat Music Bot
 
-High-performance, production-ready Telegram Group Voice Chat Music Bot written in Python 3.
-
----
-
-## 🇲🇲 မြန်မာဘာသာဖြင့် တပ်ဆင်နည်း (Myanmar Setup Guide)
-
-### ၁။ လိုအပ်ချက်များ (Requirements)
-1. **Telegram API ID & API HASH**: [my.telegram.org](https://my.telegram.org) မှ ရယူပါ။
-2. **Bot Token**: Telegram [@BotFather](https://t.me/BotFather) တွင် bot အသစ်ဆောက်၍ token ရယူပါ။
-3. **String Session**: Assistant Account အတွက် Pyrogram String Session ရယူပါ။
-4. **FFmpeg**: အသံ stream လုပ်ရန် ကွန်ပျူတာ / VPS / Termux ထဲတွင် ffmpeg ထည့်ထားရမည်။
-
-### ၂။ String Session ထုတ်ယူနည်း
-```bash
-pip install pyrogram tgcrypto
-python generate_session.py
-```
-ဖုန်းနံပါတ်နှင့် Telegram login code ရိုက်ထည့်ပြီး ထွက်လာသော String Session ကို `config.py` သို့မဟုတ် Environment Variable ထဲ ထည့်ပါ။
-
-### ၃။ Bot စတင် Run နည်း (Local / VPS / Termux)
-```bash
-# Clone or setup folder
-pip install -r requirements.txt
-
-# Run Bot
-python main.py
-```
-
-### ၄။ Group ထဲ အသုံးပြုနည်း
-1. သင့် Telegram Group ထဲသို့ Bot နှင့် Assistant User Account ကို **Admin** အဖြစ် Add ပါ (Voice Chat Permissions ပေးပါ)။
-2. Group ထဲတွင် **Voice Chat (Video Chat)** ကို ဖွင့် (Start) ပါ။
-3. Group ထဲတွင် `/play <သီချင်းအမည် သို့မဟုတ် YouTube link>` ဟု ရိုက်ပို့ပါ။
+High-performance 24/7 Telegram Group Voice Chat Music Bot powered by **Async Telegram Bot API + Pyrogram v2 + PyTgCalls + yt-dlp + Pillow Frosted-Glass Artwork Engine**.
 
 ---
 
-## 🇬🇧 English Setup Guide
+## 🚀 GitHub + Wispbyte 24/7 Run နည်း (အဆင့်ဆင့် လမ်းညွှန်)
 
-### 1. Requirements
-- Python 3.9+
-- FFmpeg installed (`apt-get install ffmpeg` on Linux, `brew install ffmpeg` on macOS, `pkg install ffmpeg` on Termux)
-- Telegram `API_ID`, `API_HASH`, `BOT_TOKEN`, and `STRING_SESSION`.
+ဤ Repository တွင် **Wispbyte Free/Paid Python Container** အတွက် လိုအပ်သော `FFmpeg` နှင့် `Node.js` binary များကို `requirements.txt` မှတစ်ဆင့် အလိုအလျောက် ထည့်သွင်းပေးထားပြီး ဖြစ်ပါသည် (`sudo` သို့မဟုတ် `apt` မလိုအပ်ပါ)။
 
-### 2. Available Commands
-- `/play <song name / yt url>` - Stream audio in Group Voice Chat.
-- `/pause` - Pause currently playing stream.
-- `/resume` - Resume the paused audio stream.
-- `/skip` - Skip current track to the next one in queue.
-- `/stop` or `/end` - Stop playback, clear queue, and leave voice chat.
-- `/queue` - Display currently active queue.
-- `/help` - Show command instructions.
+### ၁။ GitHub သို့ Push / Export လုပ်ပါ
+- AI Studio မှ GitHub Repository (Private repo ထားရန် အကြံပြုပါသည် — `config.py` ထဲတွင် Token နှင့် Session ပါဝင်သောကြောင့်) သို့ Export/Push လုပ်ပါ။
+
+### ၂။ Wispbyte Panel တွင် Server တည်ဆောက်ပါ
+1. [Wispbyte Dashboard](https://wispbyte.com) တွင် **Python** Server တစ်ခု ဆောက်ပါ။
+2. **Startup** tab သို့ သွားပြီး အောက်ပါအတိုင်း သတ်မှတ်ပါ —
+   - **App py file / Main File**: `main.py`
+   - **Requirements file**: `requirements.txt`
+   - **Python Version (Docker Image)**: `Python 3.10` သို့မဟုတ် `Python 3.11` (အကောင်းဆုံး) — `3.12` လည်း အလုပ်လုပ်အောင် ပြင်ဆင်ပေးထားပါသည်။
+3. **Git / GitHub Integration** ဖြင့် ချိတ်မည်ဆိုပါက —
+   - **Git Repo Address**: သင့် GitHub Repo URL ထည့်ပါ။
+   - **Install Branch**: `main`
+   - Private Repo ဖြစ်ပါက GitHub Username နှင့် Personal Access Token (PAT) ထည့်ပေးပါ (သို့မဟုတ် Files tab တွင် ZIP တိုက်ရိုက် Upload လုပ်ပြီး Unarchive လုပ်နိုင်ပါသည်)။
+4. **Console** tab သို့သွား၍ **Start** နှိပ်ပါ။ ပထမဆုံးအကြိမ် `requirements.txt` ကို အလိုအလျောက် install လုပ်ပြီးသည်နှင့် `🚀 Mario Music (@marioxnmusic_bot) is fully ACTIVE & READY!` ပေါ်လာပါမည်။
+
+---
+
+## 🎧 Commands (Public)
+- `/start` — Live Server Stats + Welcome Banner (`Add Me To Your Group`, `Support`, `Owner`)
+- `/play <song name / YouTube / SoundCloud URL>` — Group Voice Chat တွင် သီချင်းဖွင့်မည် (User ရိုက်လိုက်သော `/play` စာကို အလိုအလျောက် ဖျက်ပေးသည်)
+- `/pause` — ခေတ္တရပ်မည်
+- `/resume` — ပြန်ဖွင့်မည်
+- `/skip` — နောက်တစ်ပုဒ် ကျော်မည် (15s auto-delete notice)
+- `/stop` — သီချင်းရပ်ပြီး Voice Chat မှ ထွက်မည် (15s auto-delete notice)
+- `/queue` — တန်းစီထားသော သီချင်းစာရင်း ကြည့်မည်
+
+## 🔐 Secret Owner Admin Panel
+- Bot Owner (`@Yes_Im_Mario`) တစ်ဦးတည်းသာ Bot ၏ Private Chat တွင် `/start` သို့မဟုတ် `/admin` နှိပ်ပါက **⚙️ Admin Panel** ပေါ်လာပြီး Start Photo ပြောင်းခြင်း၊ Welcome စာသားပြင်ခြင်း နှင့် Group/User အားလုံးသို့ Broadcast ပို့ခြင်း ပြုလုပ်နိုင်ပါသည်။
