@@ -13,3 +13,4 @@ __pycache__/
 *.tmp
 downloads/
 .runtime_bin/
+.local_autostart

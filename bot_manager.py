@@ -376,18 +376,36 @@ async def handle_verify_code(request: web.Request) -> web.Response:
     return web.json_response(res)
 
 
+AUTOSTART_FLAG = os.path.join(ROOT_DIR, ".local_autostart")
+
+
 async def handle_restart(_request: web.Request) -> web.Response:
+    try:
+        with open(AUTOSTART_FLAG, "w", encoding="utf-8") as fp:
+            fp.write("1")
+    except OSError:
+        pass
     await supervisor.start_bot()
     return web.json_response({"ok": True})
 
 
 async def handle_stop(_request: web.Request) -> web.Response:
+    try:
+        if os.path.exists(AUTOSTART_FLAG):
+            os.remove(AUTOSTART_FLAG)
+    except OSError:
+        pass
     await supervisor.stop_bot()
     return web.json_response({"ok": True})
 
 
 async def on_startup(_app: web.Application):
-    await supervisor.start_bot()
+    if os.path.exists(AUTOSTART_FLAG):
+        await supervisor.start_bot()
+    else:
+        supervisor.append_log(
+            "[Supervisor] Local preview bot is paused so Wispbyte 24/7 server can run without Telegram conflict."
+        )
 
 
 async def on_cleanup(_app: web.Application):

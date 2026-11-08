@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  Download,
   KeyRound,
   Loader2,
   Phone,
@@ -12,6 +13,7 @@ import {
   RefreshCw,
   Send,
   ShieldAlert,
+  Smartphone,
   Square,
   Terminal,
   UserCheck,
@@ -19,6 +21,7 @@ import {
 
 interface LiveControlPanelProps {
   lang: 'mm' | 'en';
+  onOpenVpsGuide?: () => void;
 }
 
 interface ManagerStatus {
@@ -45,7 +48,7 @@ interface ManagerStatus {
   logs: string[];
 }
 
-export const LiveControlPanel: React.FC<LiveControlPanelProps> = ({ lang }) => {
+export const LiveControlPanel: React.FC<LiveControlPanelProps> = ({ lang, onOpenVpsGuide }) => {
   const [status, setStatus] = useState<ManagerStatus | null>(null);
   const [phone, setPhone] = useState('+959674354885');
   const [otpCode, setOtpCode] = useState('');
@@ -53,8 +56,66 @@ export const LiveControlPanel: React.FC<LiveControlPanelProps> = ({ lang }) => {
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [restartingBot, setRestartingBot] = useState(false);
+  const [downloadingWispbyte, setDownloadingWispbyte] = useState(false);
+  const [downloadingVpsScript, setDownloadingVpsScript] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleDownloadVpsScript = async () => {
+    setDownloadingVpsScript(true);
+    try {
+      const res = await fetch('/api/download-vps-script');
+      if (!res.ok) throw new Error('VPS script generation failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'mario-vps-auto.sh';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setFeedback({
+        type: 'success',
+        text:
+          lang === 'mm'
+            ? 'mario-vps-auto.sh ဒေါင်းပြီးပါပြီ! Free VPS သို့မဟုတ် GitHub Codespaces ထဲ တင်ပြီး bash mario-vps-auto.sh ရိုက်လိုက်ရုံဖြင့် Key အားလုံးနှင့် 24/7 အလိုအလျောက် Run ပေးပါမည်။'
+            : 'Downloaded mario-vps-auto.sh! Upload to your VPS or Codespaces and run: bash mario-vps-auto.sh',
+      });
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err?.message || 'Failed to download VPS script' });
+    } finally {
+      setDownloadingVpsScript(false);
+    }
+  };
+
+  const handleDownloadWispbyteZip = async () => {
+    setDownloadingWispbyte(true);
+    try {
+      const res = await fetch('/api/download-wispbyte-zip');
+      if (!res.ok) throw new Error('ZIP generation failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'mario-music-wispbyte.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setFeedback({
+        type: 'success',
+        text:
+          lang === 'mm'
+            ? 'mario-music-wispbyte.zip ဒေါင်းပြီးပါပြီ! Wispbyte -> Files ထဲတွင် ဖိုင်အဟောင်းများဖျက်၍ ဤ ZIP ကို Upload တင်ပြီး Unarchive နှိပ်ရုံဖြင့် တန်း Run နိုင်ပါပြီ (Folder ရွှေ့စရာမလိုပါ၊ Key အားလုံး ပါပြီးသားဖြစ်ပါသည်)။'
+            : 'Downloaded mario-music-wispbyte.zip! Upload to Wispbyte Files, click Unarchive, and press Start.',
+      });
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err?.message || 'Failed to download ZIP' });
+    } finally {
+      setDownloadingWispbyte(false);
+    }
+  };
 
   const fetchStatus = async () => {
     try {
@@ -175,6 +236,100 @@ export const LiveControlPanel: React.FC<LiveControlPanelProps> = ({ lang }) => {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 space-y-6">
+      {/* Direct Wispbyte Ready ZIP Card (All Keys Included, No Folder Nesting) */}
+      <div className="rounded-2xl border border-emerald-500/30 bg-slate-900/90 p-5 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-emerald-400">
+              {lang === 'mm'
+                ? 'Wispbyte 24/7 တိုက်ရိုက်တင်ရန် အသင့်သုံး ZIP · Key အားလုံး ထည့်သွင်းပြီး'
+                : 'Wispbyte 24/7 Direct Deployment Bundle · All Live Keys Pre-Configured'}
+            </div>
+            <h2 className="text-lg sm:text-xl font-bold text-white">
+              {lang === 'mm'
+                ? 'GitHub မလိုဘဲ Wispbyte ထဲ တိုက်ရိုက်ထည့်ရန် ZIP ဒေါင်းပါ'
+                : 'Download Direct Wispbyte ZIP (No GitHub Needed)'}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
+              {lang === 'mm'
+                ? 'ဤ ZIP ထဲတွင် BOT_TOKEN, STRING_SESSION, API_ID, API_HASH, OWNER_ID နှင့် Start ပုံ အားလုံး အပြီးအစီး ထည့်ပေးထားပြီး Folder အထပ်မပါဝင်ပါ။ Wispbyte Free RAM နှင့် မပြည့်အောင်လည်း အထူးချုံ့ပေးထားပါသည်။'
+                : 'Pre-configured with BOT_TOKEN, STRING_SESSION, API_ID, API_HASH, OWNER_ID, and start banner directly at the archive root with low-RAM bootstrap for Wispbyte Free Tier.'}
+            </p>
+            <div className="pt-1 text-xs text-slate-400 space-y-1">
+              <div>
+                {lang === 'mm'
+                  ? '1. အစိမ်းရောင်ခလုတ်နှိပ်၍ mario-music-wispbyte.zip ဒေါင်းပါ။'
+                  : '1. Download mario-music-wispbyte.zip using the button.'}
+              </div>
+              <div>
+                {lang === 'mm'
+                  ? '2. Wispbyte -> Files (home / container) ထဲရှိ ဖိုင်အဟောင်းအားလုံး ဖျက်ပြီး ဤ ZIP ကို Upload တင်ကာ ••• -> Unarchive နှိပ်ပါ (Folder ရွှေ့စရာ လုံးဝမလိုပါ)။'
+                  : '2. Clear old files in Wispbyte Files (home / container), upload this ZIP, and click ••• -> Unarchive.'}
+              </div>
+              <div>
+                {lang === 'mm'
+                  ? '3. Console သို့သွားပြီး Start / Restart နှိပ်ပါ (main.py / bot.py / app.py အားလုံး အလိုအလျောက် အလုပ်လုပ်ပါသည်)။'
+                  : '3. Open Console and click Start / Restart (works automatically with main.py, bot.py, or app.py).'}
+              </div>
+            </div>
+          </div>
+
+          <div className="shrink-0 flex flex-col sm:flex-row lg:flex-col gap-2.5">
+            <button
+              onClick={handleDownloadWispbyteZip}
+              disabled={downloadingWispbyte}
+              className="w-full lg:w-auto inline-flex items-center justify-center gap-2.5 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              {downloadingWispbyte ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              <span>
+                {downloadingWispbyte
+                  ? lang === 'mm'
+                    ? 'ZIP ပြင်ဆင်နေပါသည်...'
+                    : 'Preparing ZIP...'
+                  : lang === 'mm'
+                  ? 'All-in-One ZIP ဒေါင်းမည်'
+                  : 'Download All-in-One ZIP'}
+              </span>
+            </button>
+
+            <button
+              onClick={handleDownloadVpsScript}
+              disabled={downloadingVpsScript}
+              className="w-full lg:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/20 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              {downloadingVpsScript ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Terminal className="h-4 w-4" />
+              )}
+              <span>
+                {lang === 'mm'
+                  ? 'VPS 1-File Auto Script (.sh)'
+                  : 'Download VPS Auto Script (.sh)'}
+              </span>
+            </button>
+
+            {onOpenVpsGuide && (
+              <button
+                onClick={onOpenVpsGuide}
+                className="w-full lg:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/90 px-4 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Smartphone className="h-4 w-4 text-cyan-400" />
+                <span>
+                  {lang === 'mm'
+                    ? 'ဖုန်းဖြင့် Free VPS တင်နည်း ကြည့်မည်'
+                    : 'Free Mobile VPS Guide'}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Live Status Header Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* Card 1: Bot Client */}

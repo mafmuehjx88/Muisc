@@ -21,6 +21,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   const handleDownloadZip = async () => {
     setDownloading(true);
     try {
+      const res = await fetch('/api/download-wispbyte-zip');
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'mario-music-wispbyte.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const zip = new JSZip();
       CODE_FILES.forEach((file) => {
         zip.file(file.filename, file.content);
@@ -29,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'telegram-group-music-bot.zip';
+      a.download = 'mario-music-wispbyte.zip';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -42,10 +56,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const navItems = [
-    { id: 'live', labelEn: 'Live Bot & OTP', labelMm: 'တိုက်ရိုက် Run & OTP', icon: Radio },
+    { id: 'live', labelEn: 'Live Bot & ZIP', labelMm: 'တိုက်ရိုက် Run & ZIP', icon: Radio },
+    { id: 'setup', labelEn: 'Free Mobile VPS', labelMm: 'Free VPS (ဖုန်းဖြင့်)', icon: BookOpen },
     { id: 'code', labelEn: 'Source Code', labelMm: 'ကုဒ်ဖိုင်များ', icon: Code2 },
     { id: 'simulator', labelEn: 'Simulator', labelMm: 'စမ်းသပ်ခန်း', icon: Terminal },
-    { id: 'setup', labelEn: 'Setup Guide', labelMm: 'လမ်းညွှန်', icon: BookOpen },
     { id: 'architecture', labelEn: 'Architecture', labelMm: 'တည်ဆောက်ပုံ', icon: Layers },
   ];
 

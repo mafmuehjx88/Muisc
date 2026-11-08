@@ -6,5 +6,3 @@ aiohttp>=3.9.0
 aiofiles>=23.2.1
 requests>=2.31.0
 Pillow>=10.0.0
-imageio-ffmpeg>=0.5.1
-nodejs-wheel-binaries==22.20.0

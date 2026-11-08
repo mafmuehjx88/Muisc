@@ -20,7 +20,9 @@ export default function App() {
       />
 
       <main className="flex-1 pb-16">
-        {activeTab === 'live' && <LiveControlPanel lang={lang} />}
+        {activeTab === 'live' && (
+          <LiveControlPanel lang={lang} onOpenVpsGuide={() => setActiveTab('setup')} />
+        )}
         {activeTab === 'code' && <CodeViewer lang={lang} />}
         {activeTab === 'simulator' && <BotSimulator lang={lang} />}
         {activeTab === 'setup' && <SetupGuide lang={lang} />}

@@ -12,15 +12,19 @@ Hybrid Architecture:
 
 import asyncio
 import html
+import gc
 import io
 import json
 import logging
 import math
 import os
+import platform
 import re
 import shutil
 import signal
+import subprocess
 import sys
+import tarfile
 import time
 import urllib.parse
 import urllib.request
@@ -30,6 +34,23 @@ import aiohttp
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Optimize low-memory Linux container allocations (Serverix / Pterodactyl 256MB free tier)
+os.environ.setdefault("NODE_OPTIONS", "--max-old-space-size=64")
+os.environ.setdefault("UV_THREADPOOL_SIZE", "2")
+os.environ.setdefault("MALLOC_ARENA_MAX", "2")
+
+
+def trim_process_memory() -> None:
+    """Aggressively release unused heap pages back to the Linux OS (glibc)."""
+    try:
+        gc.collect()
+        if platform.system() == "Linux":
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
 
 # Ensure an active asyncio event loop exists BEFORE importing Pyrogram & PyTgCalls
 # (Prevents RuntimeError on Python 3.11 / 3.12+ containers such as Wispbyte)
@@ -44,11 +65,28 @@ except RuntimeError:
 
 
 def _bootstrap_container_binaries() -> None:
-    """Auto-wire bundled Node.js and FFmpeg wheels into PATH on rootless hosts (e.g. Wispbyte)."""
-    path_parts = os.environ.get("PATH", "").split(os.pathsep)
+    """Auto-provision Node.js and FFmpeg into .runtime_bin on rootless Free-Tier hosts (e.g. Wispbyte) with minimal RAM."""
+    runtime_bin = os.path.join(ROOT_DIR, ".runtime_bin")
+    os.makedirs(runtime_bin, exist_ok=True)
 
-    # 1. Ensure 'node' is in PATH for py-tgcalls 0.9.7 bridge
+    path_parts = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    if runtime_bin not in path_parts:
+        path_parts.insert(0, runtime_bin)
+        os.environ["PATH"] = os.pathsep.join(path_parts)
+
+    # Ensure existing cached binaries have executable permissions after ZIP extraction
+    for bin_name in ("node", "ffmpeg"):
+        cached_bin = os.path.join(runtime_bin, bin_name)
+        if os.path.isfile(cached_bin):
+            try:
+                os.chmod(cached_bin, 0o755)
+            except OSError:
+                pass
+
+    # 1. Ensure 'node' is in PATH for py-tgcalls 0.9.7 WebRTC bridge
     if not shutil.which("node"):
+        print("[Bootstrap] Node.js not found in container PATH. Setting up lightweight Node.js runtime...", flush=True)
+        # First check if nodejs_wheel is already installed
         try:
             import nodejs_wheel  # type: ignore
 
@@ -64,15 +102,57 @@ def _bootstrap_container_binaries() -> None:
         except Exception:
             pass
 
+    if not shutil.which("node"):
+        # Stream ONLY 'bin/node' directly from nodejs.org in 64KB chunks (< 3 MB RAM, skips npm/headers)
+        machine = platform.machine().lower()
+        arch = "arm64" if machine in ("aarch64", "arm64") else "x64"
+        node_url = f"https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-{arch}.tar.gz"
+        node_dst = os.path.join(runtime_bin, "node")
+        node_tmp = os.path.join(runtime_bin, "node.tmp")
+        try:
+            req = urllib.request.Request(node_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                with tarfile.open(fileobj=resp, mode="r|gz") as tar:
+                    for member in tar:
+                        if member.isfile() and member.name.endswith("/bin/node"):
+                            extracted = tar.extractfile(member)
+                            if extracted is not None:
+                                with open(node_tmp, "wb") as out_fp:
+                                    shutil.copyfileobj(extracted, out_fp, length=65536)
+                                os.replace(node_tmp, node_dst)
+                                os.chmod(node_dst, 0o755)
+                                print("[Bootstrap] Node.js binary ready in .runtime_bin/node ✅", flush=True)
+                            break
+        except Exception as e:
+            print(f"[Bootstrap] Direct Node stream fallback ({e}); trying pip wheel...", flush=True)
+            try:
+                if os.path.exists(node_tmp):
+                    os.remove(node_tmp)
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--no-deps", "nodejs-wheel-binaries==20.18.0"]
+                )
+                import nodejs_wheel  # type: ignore
+
+                node_bin_dir = os.path.join(os.path.dirname(nodejs_wheel.__file__), "bin")
+                os.chmod(os.path.join(node_bin_dir, "node"), 0o755)
+                os.environ["PATH"] = node_bin_dir + os.pathsep + os.environ.get("PATH", "")
+            except Exception as pip_err:
+                print(f"[Bootstrap] Warning: Could not auto-install Node.js: {pip_err}", flush=True)
+
     # 2. Ensure 'ffmpeg' is in PATH for PyTgCalls & yt-dlp audio streaming
     if not shutil.which("ffmpeg"):
+        print("[Bootstrap] FFmpeg not found in container PATH. Installing static FFmpeg (--no-cache-dir)...", flush=True)
         try:
-            import imageio_ffmpeg  # type: ignore
+            try:
+                import imageio_ffmpeg  # type: ignore
+            except ImportError:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--no-deps", "imageio-ffmpeg>=0.5.1"]
+                )
+                import imageio_ffmpeg  # type: ignore
 
             ffmpeg_src = imageio_ffmpeg.get_ffmpeg_exe()
             if ffmpeg_src and os.path.isfile(ffmpeg_src):
-                runtime_bin = os.path.join(ROOT_DIR, ".runtime_bin")
-                os.makedirs(runtime_bin, exist_ok=True)
                 ffmpeg_dst = os.path.join(runtime_bin, "ffmpeg")
                 if not os.path.exists(ffmpeg_dst):
                     try:
@@ -83,12 +163,9 @@ def _bootstrap_container_binaries() -> None:
                     os.chmod(ffmpeg_dst, 0o755)
                 except OSError:
                     pass
-                path_parts = os.environ.get("PATH", "").split(os.pathsep)
-                if runtime_bin not in path_parts:
-                    path_parts.insert(0, runtime_bin)
-                    os.environ["PATH"] = os.pathsep.join(path_parts)
-        except Exception:
-            pass
+                print("[Bootstrap] FFmpeg binary ready in .runtime_bin/ffmpeg ✅", flush=True)
+        except Exception as ff_err:
+            print(f"[Bootstrap] Warning: Could not auto-install FFmpeg: {ff_err}", flush=True)
 
 
 _bootstrap_container_binaries()
@@ -111,6 +188,7 @@ from pytgcalls.exceptions import (
     NotInGroupCallError,
 )
 from pytgcalls.types import AudioPiped, StreamAudioEnded
+from pytgcalls.types.input_stream.quality import HighQualityAudio
 import yt_dlp
 
 import config
@@ -734,10 +812,13 @@ def _render_stream_card_sync(track: dict) -> Optional[str]:
         canvas.alpha_composite(card_masked, (card_x, card_y))
 
         out_path = os.path.join(DOWNLOAD_DIR, f"card_{int(time.time() * 1000)}_{os.getpid()}.jpg")
-        canvas.convert("RGB").save(out_path, format="JPEG", quality=93, optimize=True)
+        canvas.convert("RGB").save(out_path, format="JPEG", quality=90, optimize=True)
+        del canvas, card_img, card_masked, bg, cover
+        trim_process_memory()
         return out_path
     except Exception as card_err:
         logger.warning(f"Stream card generation fallback notice: {card_err}")
+        trim_process_memory()
         return None
 
 
@@ -1012,7 +1093,88 @@ YTDL_BASE_OPTIONS = {
     "quiet": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
+    "socket_timeout": 6,
+    "retries": 1,
+    "skip_download": True,
+    "extractor_args": {
+        "youtube": {
+            "skip": ["dash", "hls", "translated_subs", "comments"],
+            "player_client": ["android", "web"],
+        }
+    },
 }
+
+SEARCH_CACHE: Dict[str, Tuple[float, dict]] = {}
+
+
+def get_cached_search(query: str) -> Optional[dict]:
+    clean = query.strip().lower()
+    if clean in SEARCH_CACHE:
+        ts, data = SEARCH_CACHE[clean]
+        if time.time() - ts < 3600:
+            return dict(data)
+    return None
+
+
+def set_cached_search(query: str, data: dict) -> None:
+    clean = query.strip().lower()
+    if len(SEARCH_CACHE) > 80:
+        try:
+            oldest = min(SEARCH_CACHE.keys(), key=lambda k: SEARCH_CACHE[k][0])
+            SEARCH_CACHE.pop(oldest, None)
+        except Exception:
+            SEARCH_CACHE.clear()
+    SEARCH_CACHE[clean] = (time.time(), dict(data))
+
+
+def cleanup_storage_and_memory(active_chat_id: Optional[int] = None) -> None:
+    """Instantly delete finished tracks, cache files, card images, and release RAM to Linux OS."""
+    # 1. Clean cache_audio/
+    cache_dir = os.path.join(ROOT_DIR, "cache_audio")
+    if os.path.isdir(cache_dir):
+        active_files = set()
+        for t in CURRENT_PLAYING.values():
+            if isinstance(t, dict) and t.get("local_file"):
+                active_files.add(os.path.abspath(t["local_file"]))
+        try:
+            for fname in os.listdir(cache_dir):
+                fp = os.path.abspath(os.path.join(cache_dir, fname))
+                if fp not in active_files:
+                    try:
+                        os.remove(fp)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    # 2. Clean downloads/
+    dl_dir = os.path.join(ROOT_DIR, "downloads")
+    if os.path.isdir(dl_dir):
+        try:
+            for fname in os.listdir(dl_dir):
+                fp = os.path.join(dl_dir, fname)
+                try:
+                    if os.path.isfile(fp):
+                        os.remove(fp)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 3. Clean root temporary files
+    try:
+        for fname in os.listdir(ROOT_DIR):
+            if (fname.startswith("card_") and fname.endswith(".jpg")) or fname.endswith(".tmp"):
+                try:
+                    os.remove(os.path.join(ROOT_DIR, fname))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 4. Aggressively trim RAM back to OS
+    trim_process_memory()
+
 
 
 # ==========================================================
@@ -1384,6 +1546,11 @@ def _fetch_youtube_oembed_title(url: str) -> Optional[str]:
 
 
 async def search_ytdl(query: str) -> Optional[dict]:
+    cached = get_cached_search(query)
+    if cached:
+        logger.info(f"Instant search cache hit for: {query}")
+        return cached
+
     loop = asyncio.get_running_loop()
 
     def _extract() -> Optional[dict]:
@@ -1400,6 +1567,7 @@ async def search_ytdl(query: str) -> Optional[dict]:
                 if info:
                     track = _build_track_dict(info, query)
                     if track:
+                        set_cached_search(query, track)
                         return track
         except Exception as yt_err:
             logger.warning(f"Primary extractor notice ({query}): {yt_err}")
@@ -1412,10 +1580,10 @@ async def search_ytdl(query: str) -> Optional[dict]:
             elif is_url:
                 return None
 
-        sc_opts = {**YTDL_BASE_OPTIONS, "ignoreerrors": True}
+        sc_opts = {**YTDL_BASE_OPTIONS, "ignoreerrors": True, "socket_timeout": 5}
         try:
             with yt_dlp.YoutubeDL(sc_opts) as sc_ytdl:
-                sc_info = sc_ytdl.extract_info(f"scsearch5:{fallback_search_term}", download=False)
+                sc_info = sc_ytdl.extract_info(f"scsearch2:{fallback_search_term}", download=False)
                 raw_entries = (sc_info or {}).get("entries") or []
                 valid_tracks = []
                 for entry in raw_entries:
@@ -1427,7 +1595,9 @@ async def search_ytdl(query: str) -> Optional[dict]:
 
                 if valid_tracks:
                     full_tracks = [t for t in valid_tracks if t["duration_sec"] > 45]
-                    return full_tracks[0] if full_tracks else valid_tracks[0]
+                    chosen = full_tracks[0] if full_tracks else valid_tracks[0]
+                    set_cached_search(query, chosen)
+                    return chosen
         except Exception as sc_err:
             logger.error(f"Fallback SoundCloud extraction error: {sc_err}")
 
@@ -1568,17 +1738,105 @@ async def ensure_assistant_joined(chat_id: int) -> Tuple[bool, str]:
         )
 
 
+def get_audio_stream(source: str) -> AudioPiped:
+    """Build a heavily buffered, anti-lag FFmpeg audio stream to prevent stuttering on cloud VPS."""
+    if source.startswith("http://") or source.startswith("https://"):
+        return AudioPiped(
+            source,
+            audio_parameters=HighQualityAudio(),
+            additional_ffmpeg_parameters="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 1 -bufsize 8192k",
+        )
+    return AudioPiped(
+        source,
+        audio_parameters=HighQualityAudio(),
+        additional_ffmpeg_parameters="-threads 1",
+    )
+
+
+async def get_playable_audio_source(track: dict) -> str:
+    """Pre-fetch audio locally if possible to eliminate network buffering stuttering."""
+    if track.get("local_file") and os.path.isfile(track["local_file"]):
+        return track["local_file"]
+
+    stream_url = track.get("stream_url", "")
+    web_link = track.get("link") or stream_url
+    if not web_link or "m3u8" in stream_url:
+        return stream_url
+
+    cache_dir = os.path.join(ROOT_DIR, "cache_audio")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        # Keep disk lean (< 50MB): delete older cache files if count > 3
+        cache_files = [os.path.join(cache_dir, f) for f in os.listdir(cache_dir)]
+        if len(cache_files) > 3:
+            cache_files.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0)
+            for old_p in cache_files[:-3]:
+                try:
+                    os.remove(old_p)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    import hashlib
+    h = hashlib.md5(web_link.encode("utf-8")).hexdigest()[:12]
+    out_tmpl = os.path.join(cache_dir, f"{h}.%(ext)s")
+
+    for ext in ("m4a", "opus", "mp3", "webm"):
+        candidate = os.path.join(cache_dir, f"{h}.{ext}")
+        if os.path.isfile(candidate) and os.path.getsize(candidate) > 20000:
+            track["local_file"] = candidate
+            return candidate
+
+    loop = asyncio.get_running_loop()
+
+    def _download():
+        opts = {
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "outtmpl": out_tmpl,
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "nocheckcertificate": True,
+            "socket_timeout": 6,
+            "retries": 1,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"],
+                    "skip": ["dash", "hls", "translated_subs"],
+                }
+            },
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([web_link])
+
+    try:
+        await asyncio.wait_for(loop.run_in_executor(None, _download), timeout=6.5)
+        for ext in ("m4a", "opus", "mp3", "webm"):
+            candidate = os.path.join(cache_dir, f"{h}.{ext}")
+            if os.path.isfile(candidate) and os.path.getsize(candidate) > 20000:
+                track["local_file"] = candidate
+                logger.info(f"Using local cached audio for lag-free playback: {candidate}")
+                return candidate
+    except Exception:
+        pass
+
+    return stream_url
+
+
 # ==========================================================
 # Queue & Playback Transitions (15s Auto-Cleanup)
 # ==========================================================
 async def play_next_track(chat_id: int):
     """Play the next track from the queue or leave Voice Chat with 15s auto-deleting notice."""
-    old = CURRENT_PLAYING.get(chat_id)
+    old = CURRENT_PLAYING.pop(chat_id, None)
     if old and old.get("local_file") and os.path.exists(old["local_file"]):
         try:
             os.remove(old["local_file"])
         except Exception:
             pass
+    # Wipe finished track, unlinked card pictures and purge RAM
+    cleanup_storage_and_memory(chat_id)
 
     if chat_id in QUEUES and len(QUEUES[chat_id]) > 0:
         next_track = QUEUES[chat_id].pop(0)
@@ -1586,9 +1844,10 @@ async def play_next_track(chat_id: int):
         PAUSED_CHATS.discard(chat_id)
 
         try:
+            stream_source = await get_playable_audio_source(next_track)
             await pytgcalls.change_stream(
                 chat_id,
-                AudioPiped(next_track["stream_url"]),
+                get_audio_stream(stream_source),
             )
             await send_stream_ui_card(
                 chat_id,
@@ -1601,7 +1860,6 @@ async def play_next_track(chat_id: int):
             logger.error(f"Error while playing next track in {chat_id}: {e}")
             await play_next_track(chat_id)
     else:
-        CURRENT_PLAYING.pop(chat_id, None)
         QUEUES.pop(chat_id, None)
         PAUSED_CHATS.discard(chat_id)
         await clear_active_stream_card(chat_id)
@@ -1609,6 +1867,7 @@ async def play_next_track(chat_id: int):
             await pytgcalls.leave_group_call(chat_id)
         except Exception:
             pass
+        cleanup_storage_and_memory()
         await send_temp_message(
             chat_id,
             "▢ <b>Queue Finished</b> | Left the Voice Chat.",
@@ -2242,15 +2501,16 @@ async def handle_play_group(msg: Dict[str, Any], chat_id: int, args: str):
         CURRENT_PLAYING[chat_id] = track
         PAUSED_CHATS.discard(chat_id)
 
+        stream_source = await get_playable_audio_source(track)
         try:
             await pytgcalls.join_group_call(
                 chat_id,
-                AudioPiped(track["stream_url"]),
+                get_audio_stream(stream_source),
             )
         except AlreadyJoinedError:
             await pytgcalls.change_stream(
                 chat_id,
-                AudioPiped(track["stream_url"]),
+                get_audio_stream(stream_source),
             )
 
         await bot_api.delete_message(chat_id, status_mid)
@@ -2380,7 +2640,8 @@ async def handle_message_update(msg: Dict[str, Any], bot_username: str):
             await send_temp_message(chat_id, "➜ Nothing is currently streaming.")
             return
         try:
-            await pytgcalls.change_stream(chat_id, AudioPiped(current["stream_url"]))
+            stream_source = await get_playable_audio_source(current)
+            await pytgcalls.change_stream(chat_id, get_audio_stream(stream_source))
             PAUSED_CHATS.discard(chat_id)
             await send_temp_message(chat_id, f"↻ <b>Stream Replayed</b> |\n‣ <b>By :</b> {actor}")
         except Exception as e:
@@ -2407,6 +2668,7 @@ async def handle_message_update(msg: Dict[str, Any], bot_username: str):
         QUEUES.pop(chat_id, None)
         PAUSED_CHATS.discard(chat_id)
         await clear_active_stream_card(chat_id)
+        cleanup_storage_and_memory()
         try:
             await pytgcalls.leave_group_call(chat_id)
             await send_temp_message(
@@ -2539,7 +2801,8 @@ async def handle_callback_update(cb: Dict[str, Any]):
             await bot_api.answer_callback_query(cb_id, "Nothing is currently streaming!", show_alert=True)
             return
         try:
-            await pytgcalls.change_stream(target_chat, AudioPiped(current["stream_url"]))
+            stream_source = await get_playable_audio_source(current)
+            await pytgcalls.change_stream(target_chat, get_audio_stream(stream_source))
             PAUSED_CHATS.discard(target_chat)
             await bot_api.answer_callback_query(cb_id, "Replaying current track!")
             await send_temp_message(
@@ -2575,6 +2838,7 @@ async def handle_callback_update(cb: Dict[str, Any]):
         QUEUES.pop(target_chat, None)
         PAUSED_CHATS.discard(target_chat)
         await clear_active_stream_card(target_chat)
+        cleanup_storage_and_memory()
         try:
             await pytgcalls.leave_group_call(target_chat)
         except Exception:
@@ -2728,15 +2992,60 @@ async def main():
     logger.info(f"🚀 {config.BOT_NAME} (@{bot_username}) is fully ACTIVE & READY!")
     logger.info("=" * 60)
 
+    # Optional HTTP health-check server when PORT env var is provided (e.g. Koyeb / Render / HF Spaces Docker)
+    health_runner = None
+    port_env = os.getenv("PORT", "").strip()
+    if port_env.isdigit():
+        try:
+            from aiohttp import web
+
+            async def _health_handler(_request: web.Request) -> web.Response:
+                return web.json_response(
+                    {
+                        "ok": True,
+                        "service": config.BOT_NAME,
+                        "bot": f"@{bot_username}",
+                        "uptime_seconds": int(time.time() - BOT_START_TIME),
+                    }
+                )
+
+            health_app = web.Application()
+            health_app.router.add_get("/", _health_handler)
+            health_app.router.add_get("/health", _health_handler)
+            health_runner = web.AppRunner(health_app, access_log=None)
+            await health_runner.setup()
+            health_site = web.TCPSite(health_runner, "0.0.0.0", int(port_env))
+            await health_site.start()
+            logger.info(f"HTTP health-check server listening on 0.0.0.0:{port_env}")
+        except Exception as he:
+            logger.warning(f"Optional health-check server skipped: {he}")
+
+    async def _memory_trimmer_loop():
+        while not stop_event.is_set():
+            try:
+                await asyncio.sleep(30)
+                cleanup_storage_and_memory()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
+
+    mem_task = asyncio.create_task(_memory_trimmer_loop())
     poll_task = asyncio.create_task(poll_bot_updates(bot_username, stop_event))
     await stop_event.wait()
 
     logger.info("Stopping Bot & Clients gracefully...")
+    mem_task.cancel()
     poll_task.cancel()
     try:
-        await poll_task
-    except asyncio.CancelledError:
+        await asyncio.gather(mem_task, poll_task, return_exceptions=True)
+    except Exception:
         pass
+    if health_runner is not None:
+        try:
+            await health_runner.cleanup()
+        except Exception:
+            pass
     try:
         await pytgcalls.stop()
     except Exception:

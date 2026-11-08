@@ -1,10 +1,13 @@
 # Production Dockerfile for Telegram Group Music Bot
 FROM python:3.10-slim-bullseye
 
-# Install system dependencies (ffmpeg is essential for audio streaming)
+# Install system dependencies (ffmpeg + nodejs are required for PyTgCalls audio streaming)
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
+    nodejs \
+    curl \
+    unzip \
     git \
     gcc \
     python3-dev \
